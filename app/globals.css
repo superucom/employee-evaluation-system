@@ -38,6 +38,138 @@
   --sidebar-width: 260px;
 }
 
+/* ===== Light Mode ===== */
+html.light {
+  --background: #f1f5f9;
+  --foreground: #0f172a;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --primary: #2563eb;
+  --primary-foreground: #ffffff;
+  --secondary: #e2e8f0;
+  --secondary-foreground: #0f172a;
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
+  --accent: #2563eb;
+  --border: #cbd5e1;
+  --input: #ffffff;
+  --ring: #2563eb;
+}
+
+html.light body {
+  background-color: #f1f5f9;
+  color: #0f172a;
+}
+
+/* Light: tailwind overrides */
+html.light .bg-background { background-color: #f1f5f9 !important; }
+html.light .bg-card { background-color: #ffffff !important; }
+html.light .bg-muted { background-color: #f1f5f9 !important; }
+html.light .bg-primary { background-color: #2563eb !important; }
+html.light .bg-secondary { background-color: #e2e8f0 !important; }
+html.light .text-foreground { color: #0f172a !important; }
+html.light .text-card-foreground { color: #0f172a !important; }
+html.light .text-muted-foreground { color: #64748b !important; }
+html.light .text-primary { color: #2563eb !important; }
+html.light .border-border { border-color: #cbd5e1 !important; }
+html.light .border-input { border-color: #94a3b8 !important; }
+
+/* Light: Sidebar */
+html.light .sidebar-root {
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%) !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 2px 0 12px rgba(0,0,0,0.06) !important;
+}
+html.light .sidebar-root .text-foreground { color: #0f172a !important; }
+html.light .sidebar-root .text-muted-foreground { color: #64748b !important; }
+html.light .sidebar-root .nav-item-active {
+  background: rgba(37, 99, 235, 0.1) !important;
+  color: #2563eb !important;
+}
+html.light .sidebar-root .nav-item-hover:hover {
+  background: rgba(37, 99, 235, 0.06) !important;
+  color: #1d4ed8 !important;
+}
+
+/* Light: form inputs */
+html.light input[type="text"],
+html.light input[type="email"],
+html.light input[type="password"],
+html.light input[type="date"],
+html.light input[type="number"],
+html.light input[type="search"],
+html.light input[type="tel"],
+html.light input[type="url"],
+html.light textarea,
+html.light select {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border: 1.5px solid #94a3b8 !important;
+}
+html.light input::placeholder,
+html.light textarea::placeholder {
+  color: #94a3b8 !important;
+}
+html.light select option {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+html.light input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: none;
+}
+html.light label {
+  color: #374151 !important;
+}
+
+/* Light: cards & modals */
+html.light .rounded-2xl.bg-card,
+html.light .rounded-xl.bg-card,
+html.light .bg-card.rounded-2xl,
+html.light .bg-card.rounded-xl {
+  background-color: #ffffff !important;
+  border-color: #e2e8f0 !important;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08) !important;
+}
+
+/* Light: stat cards */
+html.light .stat-card-hover:hover {
+  border-color: #94a3b8 !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+}
+html.light .quick-action-card:hover {
+  border-color: #2563eb !important;
+  background: rgba(37, 99, 235, 0.05) !important;
+}
+html.light .table-row-hover:hover td {
+  background: rgba(241, 245, 249, 0.8);
+}
+
+/* Light: button secondary */
+html.light button[type="button"].border {
+  border: 1.5px solid #94a3b8 !important;
+  color: #374151 !important;
+  background-color: transparent !important;
+}
+html.light button[type="button"].border:hover {
+  background-color: #e2e8f0 !important;
+  border-color: #64748b !important;
+}
+
+/* Light: main content area */
+html.light main {
+  background-color: #f1f5f9 !important;
+}
+
+/* Light: table */
+html.light thead th {
+  background-color: #f8fafc !important;
+  color: #374151 !important;
+}
+html.light tbody tr {
+  border-color: #e2e8f0 !important;
+}
+html.light .border { border-color: #e2e8f0; }
+
 /* =========================================================
    TAILWIND VARIABLE UTILITIES (manual override)
    ========================================================= */
