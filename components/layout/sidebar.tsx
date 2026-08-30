@@ -5,7 +5,6 @@ import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
 import { useState } from "react";
 import { cn } from "@/lib/utils";
-import { useTheme } from "@/components/providers/theme-provider";
 
 interface NavItem {
   label: string;
@@ -97,17 +96,6 @@ const CloseIcon = () => (
     <path d="M18 6L6 18M6 6l12 12" />
   </svg>
 );
-const SunIcon = () => (
-  <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-    <circle cx="12" cy="12" r="5" />
-    <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
-  </svg>
-);
-const MoonIcon = () => (
-  <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={2}>
-    <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
-  </svg>
-);
 
 const MANAGER_NAV: NavGroup[] = [
   {
@@ -178,13 +166,11 @@ export default function Sidebar({ role }: { role: string }) {
   const pathname = usePathname();
   const navGroups = role === "MANAGER" ? MANAGER_NAV : EVALUATOR_NAV;
   const [open, setOpen] = useState(false);
-  const { theme, toggleTheme } = useTheme();
-  const isLight = theme === "light";
 
   const sidebarContent = (
     <>
       {/* Logo */}
-      <div style={{ padding: "1.25rem 1rem 1rem", borderBottom: `1px solid ${isLight ? "rgba(0,0,0,0.08)" : "rgba(255,255,255,0.07)"}` }}>
+      <div style={{ padding: "1.25rem 1rem 1rem", borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: "0.75rem" }}>
           <div
             style={{
@@ -197,14 +183,13 @@ export default function Sidebar({ role }: { role: string }) {
               justifyContent: "center",
               flexShrink: 0,
               boxShadow: "0 4px 12px rgba(59,130,246,0.4)",
-              color: "#fff",
             }}
           >
             <ClipboardIcon />
           </div>
           <div>
-            <p style={{ fontWeight: 700, fontSize: "0.875rem", color: isLight ? "#0f172a" : "#fff", lineHeight: 1.3 }}>ระบบประเมินผล</p>
-            <p style={{ fontSize: "0.7rem", color: isLight ? "#64748b" : "#64748b", lineHeight: 1.3 }}>Performance Evaluation</p>
+            <p style={{ fontWeight: 700, fontSize: "0.875rem", color: "#fff", lineHeight: 1.3 }}>ระบบประเมินผล</p>
+            <p style={{ fontSize: "0.7rem", color: "#64748b", lineHeight: 1.3 }}>Performance Evaluation</p>
           </div>
         </div>
         {/* Role badge */}
@@ -236,7 +221,7 @@ export default function Sidebar({ role }: { role: string }) {
               style={{
                 fontSize: "0.65rem",
                 fontWeight: 700,
-                color: isLight ? "#94a3b8" : "#475569",
+                color: "#475569",
                 letterSpacing: "0.08em",
                 textTransform: "uppercase",
                 padding: "0.75rem 0.75rem 0.35rem",
@@ -259,25 +244,23 @@ export default function Sidebar({ role }: { role: string }) {
                     borderRadius: "0.65rem",
                     fontSize: "0.84rem",
                     fontWeight: isActive ? 600 : 400,
-                    color: isActive ? (isLight ? "#1d4ed8" : "#fff") : (isLight ? "#475569" : "#94a3b8"),
-                    background: isActive
-                      ? (isLight ? "rgba(37,99,235,0.1)" : "linear-gradient(135deg, rgba(59,130,246,0.25), rgba(29,78,216,0.15))")
-                      : "transparent",
-                    border: isActive ? `1px solid ${isLight ? "rgba(37,99,235,0.25)" : "rgba(59,130,246,0.3)"}` : "1px solid transparent",
+                    color: isActive ? "#fff" : "#94a3b8",
+                    background: isActive ? "linear-gradient(135deg, rgba(59,130,246,0.25), rgba(29,78,216,0.15))" : "transparent",
+                    border: isActive ? "1px solid rgba(59,130,246,0.3)" : "1px solid transparent",
                     marginBottom: "0.15rem",
                     transition: "all 0.15s ease",
                     textDecoration: "none",
                   }}
                   onMouseEnter={(e) => {
                     if (!isActive) {
-                      (e.currentTarget as HTMLElement).style.background = isLight ? "rgba(37,99,235,0.06)" : "rgba(255,255,255,0.05)";
-                      (e.currentTarget as HTMLElement).style.color = isLight ? "#1d4ed8" : "#e2e8f0";
+                      (e.currentTarget as HTMLElement).style.background = "rgba(255,255,255,0.05)";
+                      (e.currentTarget as HTMLElement).style.color = "#e2e8f0";
                     }
                   }}
                   onMouseLeave={(e) => {
                     if (!isActive) {
                       (e.currentTarget as HTMLElement).style.background = "transparent";
-                      (e.currentTarget as HTMLElement).style.color = isLight ? "#475569" : "#94a3b8";
+                      (e.currentTarget as HTMLElement).style.color = "#94a3b8";
                     }
                   }}
                 >
@@ -307,55 +290,8 @@ export default function Sidebar({ role }: { role: string }) {
         ))}
       </nav>
 
-      {/* Theme + Logout */}
-      <div style={{ padding: "0.75rem 0.5rem", borderTop: `1px solid ${isLight ? "rgba(0,0,0,0.08)" : "rgba(255,255,255,0.07)"}` }}>
-        {/* Theme Toggle */}
-        <button
-          id="theme-toggle-btn"
-          onClick={toggleTheme}
-          title={isLight ? "เปลี่ยนเป็นโหมดมืด" : "เปลี่ยนเป็นโหมดสว่าง"}
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: "0.65rem",
-            padding: "0.55rem 0.75rem",
-            borderRadius: "0.65rem",
-            fontSize: "0.82rem",
-            fontWeight: 500,
-            color: isLight ? "#475569" : "#94a3b8",
-            background: isLight ? "rgba(0,0,0,0.04)" : "rgba(255,255,255,0.04)",
-            border: `1px solid ${isLight ? "rgba(0,0,0,0.08)" : "rgba(255,255,255,0.08)"}`,
-            width: "100%",
-            cursor: "pointer",
-            transition: "all 0.15s ease",
-            marginBottom: "0.35rem",
-          }}
-          onMouseEnter={(e) => {
-            (e.currentTarget as HTMLElement).style.background = isLight ? "rgba(37,99,235,0.08)" : "rgba(255,255,255,0.08)";
-            (e.currentTarget as HTMLElement).style.color = isLight ? "#2563eb" : "#e2e8f0";
-          }}
-          onMouseLeave={(e) => {
-            (e.currentTarget as HTMLElement).style.background = isLight ? "rgba(0,0,0,0.04)" : "rgba(255,255,255,0.04)";
-            (e.currentTarget as HTMLElement).style.color = isLight ? "#475569" : "#94a3b8";
-          }}
-        >
-          {isLight ? <MoonIcon /> : <SunIcon />}
-          <span>{isLight ? "โหมดมืด" : "โหมดสว่าง"}</span>
-          <span
-            style={{
-              marginLeft: "auto",
-              fontSize: "0.65rem",
-              padding: "0.1rem 0.4rem",
-              borderRadius: "9999px",
-              background: isLight ? "rgba(37,99,235,0.12)" : "rgba(250,204,21,0.15)",
-              color: isLight ? "#2563eb" : "#fbbf24",
-              fontWeight: 600,
-            }}
-          >
-            {isLight ? "🌙" : "☀️"}
-          </span>
-        </button>
-
+      {/* Logout */}
+      <div style={{ padding: "0.75rem 0.5rem", borderTop: "1px solid rgba(255,255,255,0.07)" }}>
         <button
           id="logout-btn"
           onClick={() => signOut({ callbackUrl: "/login" })}
@@ -429,14 +365,11 @@ export default function Sidebar({ role }: { role: string }) {
 
       {/* Sidebar */}
       <aside
-        className="sidebar-root"
         style={{
           width: "var(--sidebar-width)",
           minHeight: "100vh",
-          background: isLight
-            ? "linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)"
-            : "linear-gradient(180deg, #080d16 0%, #0c1422 100%)",
-          color: isLight ? "#0f172a" : "#f8fafc",
+          background: "linear-gradient(180deg, #080d16 0%, #0c1422 100%)",
+          color: "#f8fafc",
           display: "flex",
           flexDirection: "column",
           position: "fixed",
@@ -444,10 +377,8 @@ export default function Sidebar({ role }: { role: string }) {
           top: 0,
           bottom: 0,
           zIndex: 45,
-          borderRight: `1px solid ${isLight ? "rgba(0,0,0,0.08)" : "rgba(255,255,255,0.06)"}`,
-          boxShadow: isLight ? "2px 0 12px rgba(0,0,0,0.06)" : "none",
+          borderRight: "1px solid rgba(255,255,255,0.06)",
           overflowY: "hidden",
-          transition: "background 0.3s ease, color 0.3s ease",
         }}
       >
         {/* Mobile close button */}
