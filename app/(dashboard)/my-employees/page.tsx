@@ -109,7 +109,7 @@ export default function MyEmployeesBatchEvaluationPage() {
         const [empRes, assignRes, periodRes] = await Promise.all([
           fetch("/api/employees?status=active&limit=300"),
           fetch(`/api/evaluator-assignments?evaluatorUserId=${currentUserId}`),
-          fetch("/api/evaluation-periods?status=ACTIVE"),
+          fetch("/api/evaluation-periods"),
         ]);
         const [empData, assignData, periodData] = await Promise.all([
           empRes.json(),
