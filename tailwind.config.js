@@ -18,7 +18,31 @@ module.exports = {
       },
     },
     extend: {
+      fontFamily: {
+        sans: ["var(--font-prompt)", "Prompt", "system-ui", "-apple-system", "sans-serif"],
+        prompt: ["var(--font-prompt)", "Prompt", "sans-serif"],
+      },
       colors: {
+        celadon: {
+          DEFAULT: "#8EA597",
+          border: "#799082",
+          deep: "#3B5145",
+          hover: "#81988A",
+          tint: "#E8EFEA",
+        },
+        ivory: {
+          DEFAULT: "#FAF8F3",
+          canvas: "#FCFAF5",
+          card: "#FFFFFF",
+          subtle: "#F4EFE6",
+          border: "#E6E0D2",
+        },
+        bronze: {
+          DEFAULT: "#2C2621",
+          dark: "#1F1E1C",
+          muted: "#685C53",
+          light: "#8C7E72",
+        },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
