@@ -2,13 +2,13 @@
 
 import { useState, useEffect, useMemo } from "react";
 import { useSession } from "next-auth/react";
-import { formatDateTime, getRoleLabel, getMainTeamName } from "@/lib/utils";
+import { formatDateTime, getRoleLabel, getMainTeamName, extractNickname } from "@/lib/utils";
 
 interface User {
   id: string;
   username: string;
   fullName: string;
-  role: "MANAGER" | "EVALUATOR";
+  role: "MANAGER" | "HEAD" | "SUPPORT_HEAD" | "EVALUATOR";
   isActive: boolean;
   mustChangePassword: boolean;
   lastLoginAt: string | null;
@@ -305,8 +305,10 @@ export default function UsersPage() {
             className="px-3 py-2 bg-background border border-input rounded-lg text-sm"
           >
             <option value="">ทุก Role</option>
-            <option value="MANAGER">Manager</option>
-            <option value="EVALUATOR">Evaluator</option>
+            <option value="MANAGER">Manager (ผู้จัดการ)</option>
+            <option value="HEAD">Head (หัวหน้าแผนก)</option>
+            <option value="SUPPORT_HEAD">Support Head (ผู้ช่วยหัวหน้าแผนก)</option>
+            <option value="EVALUATOR">Evaluator (ผู้ประเมิน)</option>
           </select>
           <select
             value={statusFilter}
@@ -352,9 +354,28 @@ export default function UsersPage() {
                 users.map((u) => (
                   <tr key={u.id}>
                     <td className="font-semibold text-foreground">{u.username}</td>
-                    <td>{u.fullName}</td>
                     <td>
-                      <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold ${u.role === "MANAGER" ? "bg-purple-100 text-purple-800" : "bg-blue-100 text-blue-800"}`}>
+                      <div className="flex items-center gap-1.5 font-medium text-foreground">
+                        <span>{u.fullName}</span>
+                        {extractNickname(u.fullName) && (
+                          <span className="px-1.5 py-0.5 rounded-md bg-primary/10 text-primary text-[11px] font-bold border border-primary/20">
+                            {extractNickname(u.fullName)}
+                          </span>
+                        )}
+                      </div>
+                    </td>
+                    <td>
+                      <span
+                        className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold ${
+                          u.role === "MANAGER"
+                            ? "bg-purple-100 text-purple-900 border border-purple-200"
+                            : u.role === "HEAD"
+                            ? "bg-amber-100 text-amber-900 border border-amber-200"
+                            : u.role === "SUPPORT_HEAD"
+                            ? "bg-emerald-100 text-emerald-900 border border-emerald-200"
+                            : "bg-blue-100 text-blue-900 border border-blue-200"
+                        }`}
+                      >
                         {getRoleLabel(u.role)}
                       </span>
                     </td>
@@ -491,7 +512,9 @@ export default function UsersPage() {
                   onChange={(e) => setFormData({ ...formData, role: e.target.value as any })}
                   className="w-full px-3 py-2 bg-background border border-input rounded-lg text-sm"
                 >
-                  <option value="EVALUATOR">Evaluator (ผู้ประเมิน)</option>
+                  <option value="EVALUATOR">Evaluator (ผู้ประเมินทั่วไป)</option>
+                  <option value="HEAD">Head (หัวหน้าแผนก)</option>
+                  <option value="SUPPORT_HEAD">Support Head (ผู้ช่วยหัวหน้าแผนก)</option>
                   <option value="MANAGER">Manager (ผู้ดูแลระบบ)</option>
                 </select>
               </div>
@@ -585,7 +608,9 @@ export default function UsersPage() {
                   onChange={(e) => setFormData({ ...formData, role: e.target.value as any })}
                   className="w-full px-3 py-2 bg-background border border-input rounded-lg text-sm"
                 >
-                  <option value="EVALUATOR">Evaluator (ผู้ประเมิน)</option>
+                  <option value="EVALUATOR">Evaluator (ผู้ประเมินทั่วไป)</option>
+                  <option value="HEAD">Head (หัวหน้าแผนก)</option>
+                  <option value="SUPPORT_HEAD">Support Head (ผู้ช่วยหัวหน้าแผนก)</option>
                   <option value="MANAGER">Manager (ผู้ดูแลระบบ)</option>
                 </select>
               </div>

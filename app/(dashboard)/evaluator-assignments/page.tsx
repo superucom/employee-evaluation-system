@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { getMainTeamName } from "@/lib/utils";
+import { getMainTeamName, extractNickname } from "@/lib/utils";
 
 interface EvaluatorAssignment {
   id: string;
@@ -52,15 +52,17 @@ interface Category {
   description: string | null;
 }
 
+// Weight presets aligned with org chart (base = 15 pts)
 const COMMON_WEIGHT_PRESETS = [
-  { label: "Super: 10/15 (66.7%)", value: 66.67, desc: "สำหรับ H/TF/HRD" },
-  { label: "Super: 5/15 (33.3%)", value: 33.33, desc: "สำหรับพนักงานทั่วไป/QC/SP" },
-  { label: "Head/HRD: 7.5/15 (50.0%)", value: 50.0, desc: "สำหรับ QC/SP/CR/SH" },
-  { label: "Head: 6.25/15 (41.7%)", value: 41.67, desc: "สำหรับ Call/MC/PT/CS" },
-  { label: "S.Sup: 5/15 (33.3%)", value: 33.33, desc: "สำหรับ H/TF/HRD" },
-  { label: "S.Sup: 2.5/15 (16.7%)", value: 16.67, desc: "สำหรับ QC/SP/Call/MC" },
-  { label: "SH: 1.25/15 (8.3%)", value: 8.33, desc: "สำหรับ Call/MC/PT/CS" },
-  { label: "เดี่ยว: 100%", value: 100, desc: "ผู้ประเมินคนเดียว" },
+  { label: "Super → SupportSuper: 15/15 (100%)", value: 100,   desc: "Super ประเมิน SupportSuper" },
+  { label: "Super → Head: 10/15 (66.7%)",        value: 66.67, desc: "Super ประเมิน Head" },
+  { label: "Super → SHead/Staff: 5/15 (33.3%)",  value: 33.33, desc: "Super ประเมิน SHead / พนักงาน" },
+  { label: "SSuper → Head: 5/15 (33.3%)",        value: 33.33, desc: "SupportSuper ประเมิน Head" },
+  { label: "SSuper → SHead/Staff: 2.5/15 (16.7%)", value: 16.67, desc: "SupportSuper ประเมิน SHead / พนักงาน" },
+  { label: "Head → SHead: 7.5/15 (50.0%)",       value: 50.0,  desc: "Head ประเมิน SupportHead" },
+  { label: "Head → Staff (มี SHead): 6.25/15 (41.7%)", value: 41.67, desc: "Head ประเมิน พนักงาน (CC/CCAD/CS/MKT/WD)" },
+  { label: "Head → Staff (ไม่มี SHead): 7.5/15 (50%)", value: 50.0, desc: "Head ประเมิน พนักงาน (CR/SALES/QA)" },
+  { label: "SHead → Staff: 1.25/15 (8.3%)",      value: 8.33,  desc: "SupportHead ประเมิน พนักงาน" },
 ];
 
 export default function EvaluatorAssignmentsPage() {
@@ -95,8 +97,8 @@ export default function EvaluatorAssignmentsPage() {
   const [packageData, setPackageData] = useState({
     evaluatorUserId: "",
     targetMainTeam: "TEAM_A",
-    packageType: "SUPER" as "SUPER" | "SUPPORT_SUPER",
-    periodId: "",
+    packageType: "SUPER" as "SUPER" | "SUPPORT_SUPER" | "HEAD" | "SUPPORT_HEAD",
+    targetDeptId: "",
   });
   const [packageSubmitting, setPackageSubmitting] = useState(false);
   const [packageError, setPackageError] = useState("");
@@ -117,7 +119,7 @@ export default function EvaluatorAssignmentsPage() {
   const fetchDependencies = async () => {
     try {
       const [usersRes, empRes, deptRes, periodRes, catRes] = await Promise.all([
-        fetch("/api/users?role=EVALUATOR"),
+        fetch("/api/users?limit=200"),
         fetch("/api/employees?limit=200"),
         fetch("/api/departments?includeTeams=true"),
         fetch("/api/evaluation-periods"),
@@ -212,7 +214,7 @@ export default function EvaluatorAssignmentsPage() {
     }
   };
 
-  // One-click Package Submit (Super / Support Super 3-in-1 auto setup)
+  // One-click Package Submit (all 4 role types)
   const handlePackageSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setPackageSubmitting(true);
@@ -222,90 +224,96 @@ export default function EvaluatorAssignmentsPage() {
       const headCatId = findCategory("head");
       const staffCatId = findCategory("พนักงาน");
 
-      // 1. Head (1 dept)
-      const headExcluded = departments.filter((d) => {
-        const n = d.name.toUpperCase();
-        return n !== "HEAD" && !n.startsWith("HEAD ");
-      }).map((d) => d.id);
+      // Helper: exclude all depts EXCEPT those matching codes
+      const excludeExcept = (keepCodes: string[]) =>
+        departments.filter((d) => !keepCodes.includes(d.code)).map((d) => d.id);
 
-      // 2. QA & Support Head (2 depts)
-      const qaSupExcluded = departments.filter((d) => {
-        const n = d.name.toUpperCase();
-        return !n.includes("QA") && !n.includes("SUPPORT HEAD");
-      }).map((d) => d.id);
-
-      // 3. Staff (7 general depts: CR, CallCenter, CCAD, CS, MKT, Sales, Withdraw)
-      const staffExcluded = departments.filter((d) => {
-        const n = d.name.toUpperCase();
-        return n.includes("HEAD") || n.includes("QA") || n.includes("SUPER") || n.includes("SUPPORT HEAD");
-      }).map((d) => d.id);
+      // Groups for TEAM-based assignments
+      const headDepts = ["CC", "CCAD", "CS", "MKT", "SALES", "QA", "WITHDRAW", "CR"]; // all non-super
+      const sheadDepts  = ["CC", "CCAD", "CS", "MKT", "WITHDRAW"]; // depts with SHead
+      const noSheadDepts = ["CR", "SALES", "QA"];
 
       let items: any[] = [];
 
       if (packageData.packageType === "SUPER") {
+        // Super evaluates:
+        // SupportSuper employees (SUPER dept) @ 100% (15 pts)
+        // Head employees (all team non-super depts) @ 66.7% (10 pts)
+        // SHead employees (CC,CCAD,CS,MKT,WD) @ 33.3% (5 pts)
+        // Regular staff (all) @ 33.3% (5 pts)
         items = [
-          {
-            evaluatorUserId: packageData.evaluatorUserId,
-            assignmentType: "TEAM",
+          // All non-super employees @ 5 pts
+          { evaluatorUserId: packageData.evaluatorUserId, assignmentType: "TEAM",
             targetMainTeam: packageData.targetMainTeam,
-            excludedDepartmentIds: headExcluded,
-            categoryId: headCatId || null,
-            periodId: packageData.periodId || null,
-            weightPercentage: 66.67, // 10/15
-          },
-          {
-            evaluatorUserId: packageData.evaluatorUserId,
-            assignmentType: "TEAM",
+            excludedDepartmentIds: excludeExcept(headDepts),
+            categoryId: staffCatId || null, periodId: null, weightPercentage: 33.33 },
+          // Dedicated: SHead depts (use Head category, same weight 5pts)
+          { evaluatorUserId: packageData.evaluatorUserId, assignmentType: "TEAM",
             targetMainTeam: packageData.targetMainTeam,
-            excludedDepartmentIds: qaSupExcluded,
-            categoryId: headCatId || null,
-            periodId: packageData.periodId || null,
-            weightPercentage: 33.33, // 5/15
-          },
-          {
-            evaluatorUserId: packageData.evaluatorUserId,
-            assignmentType: "TEAM",
+            excludedDepartmentIds: excludeExcept(sheadDepts),
+            categoryId: headCatId || null, periodId: null, weightPercentage: 33.33 },
+          // QA dept - head category @ 5 pts
+          { evaluatorUserId: packageData.evaluatorUserId, assignmentType: "TEAM",
             targetMainTeam: packageData.targetMainTeam,
-            excludedDepartmentIds: staffExcluded,
-            categoryId: staffCatId || null,
-            periodId: packageData.periodId || null,
-            weightPercentage: 33.33, // 5/15
-          },
+            excludedDepartmentIds: excludeExcept(["QA"]),
+            categoryId: headCatId || null, periodId: null, weightPercentage: 33.33 },
         ];
-      } else {
-        // SUPPORT_SUPER
+      } else if (packageData.packageType === "SUPPORT_SUPER") {
+        // SupportSuper evaluates everyone EXCEPT Super dept
+        // Head @ 5 pts, SHead @ 2.5 pts, Staff @ 2.5 pts
         items = [
-          {
-            evaluatorUserId: packageData.evaluatorUserId,
-            assignmentType: "TEAM",
+          // All non-super staff @ 2.5 pts
+          { evaluatorUserId: packageData.evaluatorUserId, assignmentType: "TEAM",
             targetMainTeam: packageData.targetMainTeam,
-            excludedDepartmentIds: headExcluded,
-            categoryId: headCatId || null,
-            periodId: packageData.periodId || null,
-            weightPercentage: 33.33, // 5/15
-          },
-          {
-            evaluatorUserId: packageData.evaluatorUserId,
-            assignmentType: "TEAM",
+            excludedDepartmentIds: excludeExcept(headDepts),
+            categoryId: staffCatId || null, periodId: null, weightPercentage: 16.67 },
+          // SHead depts - head category @ 2.5 pts
+          { evaluatorUserId: packageData.evaluatorUserId, assignmentType: "TEAM",
             targetMainTeam: packageData.targetMainTeam,
-            excludedDepartmentIds: qaSupExcluded,
-            categoryId: headCatId || null,
-            periodId: packageData.periodId || null,
-            weightPercentage: 16.67, // 2.5/15
-          },
-          {
-            evaluatorUserId: packageData.evaluatorUserId,
-            assignmentType: "TEAM",
+            excludedDepartmentIds: excludeExcept(sheadDepts),
+            categoryId: headCatId || null, periodId: null, weightPercentage: 16.67 },
+          // QA dept @ 2.5 pts
+          { evaluatorUserId: packageData.evaluatorUserId, assignmentType: "TEAM",
             targetMainTeam: packageData.targetMainTeam,
-            excludedDepartmentIds: staffExcluded,
-            categoryId: staffCatId || null,
-            periodId: packageData.periodId || null,
-            weightPercentage: 16.67, // 2.5/15
-          },
+            excludedDepartmentIds: excludeExcept(["QA"]),
+            categoryId: headCatId || null, periodId: null, weightPercentage: 16.67 },
+        ];
+      } else if (packageData.packageType === "HEAD") {
+        // Head evaluates own team's staff
+        // If dept has SHead: staff @ 6.25 pts, SHead @ 7.5 pts
+        // If dept has no SHead: staff @ 7.5 pts
+        if (!packageData.targetDeptId) {
+          setPackageError("กรุณาเลือกแผนกที่ Head ดูแล");
+          return;
+        }
+        const selectedDept = departments.find((d) => d.id === packageData.targetDeptId);
+        const deptCode = selectedDept?.code || "";
+        const deptHasSHead = sheadDepts.includes(deptCode);
+        const empWeight = deptHasSHead ? 41.67 : 50.0; // 6.25 or 7.5 pts
+        items = [
+          { evaluatorUserId: packageData.evaluatorUserId, assignmentType: "DEPARTMENT",
+            targetDepartmentId: packageData.targetDeptId,
+            categoryId: deptCode === "QA" ? headCatId || null : staffCatId || null,
+            periodId: null, weightPercentage: empWeight },
+          ...(deptHasSHead ? [{
+            evaluatorUserId: packageData.evaluatorUserId, assignmentType: "DEPARTMENT",
+            targetDepartmentId: packageData.targetDeptId,
+            categoryId: headCatId || null, periodId: null, weightPercentage: 50.0,
+          }] : []),
+        ];
+      } else if (packageData.packageType === "SUPPORT_HEAD") {
+        // SupportHead evaluates own dept staff @ 1.25 pts
+        if (!packageData.targetDeptId) {
+          setPackageError("กรุณาเลือกแผนกที่ Support Head ดูแล");
+          return;
+        }
+        items = [
+          { evaluatorUserId: packageData.evaluatorUserId, assignmentType: "DEPARTMENT",
+            targetDepartmentId: packageData.targetDeptId,
+            categoryId: staffCatId || null, periodId: null, weightPercentage: 8.33 },
         ];
       }
 
-      // Execute in parallel
       for (const item of items) {
         const res = await fetch("/api/evaluator-assignments", {
           method: "POST",
@@ -531,14 +539,14 @@ export default function EvaluatorAssignmentsPage() {
                 evaluatorUserId: evaluators[0]?.id || "",
                 targetMainTeam: "TEAM_A",
                 packageType: "SUPER",
-                periodId: "",
+                targetDeptId: "",
               });
               setPackageError("");
               setShowPackageModal(true);
             }}
             className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-600 text-white font-bold rounded-xl hover:from-amber-600 hover:to-orange-700 transition-all shadow-md text-sm"
           >
-            <span>⚡</span> มอบหมายชุดสิทธิ์มาตรฐาน (Super / Support Super)
+            <span>⚡</span> มอบหมายชุดสิทธิ์มาตรฐาน
           </button>
 
           {/* Manual Add Button */}
@@ -571,32 +579,30 @@ export default function EvaluatorAssignmentsPage() {
       <div className="bg-slate-900/60 p-4 rounded-2xl border border-border text-xs space-y-2">
         <div className="font-bold text-foreground flex items-center gap-2">
           <span>📊</span>
-          <span>เกณฑ์สัดส่วนคะแนนดุลพินิจ 15 คะแนน:</span>
+          <span>เกณฑ์สัดส่วนคะแนน 15 คะแนน (ตามแผนผังองค์กร):</span>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-2 text-[11px]">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-2 text-[11px]">
+          <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/20">
+            <span className="font-bold text-amber-400">👑 SupportSuper:</span>
+            <p className="text-slate-300 mt-0.5">Super <b>15</b> pts (100%)</p>
+          </div>
           <div className="p-2 rounded-xl bg-blue-500/10 border border-blue-500/20">
-            <span className="font-bold text-blue-400">H/TF/HRD:</span>
-            <p className="text-slate-300 mt-0.5">Super 10 (66.7%), S.Sup 5 (33.3%)</p>
+            <span className="font-bold text-blue-400">🔵 Head:</span>
+            <p className="text-slate-300 mt-0.5">Super <b>10</b> / S.Super <b>5</b></p>
           </div>
           <div className="p-2 rounded-xl bg-purple-500/10 border border-purple-500/20">
-            <span className="font-bold text-purple-400">QC:</span>
-            <p className="text-slate-300 mt-0.5">Super 5, S.Sup 2.5, HRD 7.5 (50%)</p>
-          </div>
-          <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
-            <span className="font-bold text-emerald-400">S.H / S.TF:</span>
-            <p className="text-slate-300 mt-0.5">Super 5, S.Sup 2.5, Head/TF 7.5</p>
-          </div>
-          <div className="p-2 rounded-xl bg-pink-500/10 border border-pink-500/20">
-            <span className="font-bold text-pink-400">SP (Support):</span>
-            <p className="text-slate-300 mt-0.5">Super 5, S.Sup 2.5, Head 7.5</p>
+            <span className="font-bold text-purple-400">🛡️ SupportHead:</span>
+            <p className="text-slate-300 mt-0.5">Super <b>5</b> / S.Super <b>2.5</b> / Head <b>7.5</b></p>
           </div>
           <div className="p-2 rounded-xl bg-teal-500/10 border border-teal-500/20">
-            <span className="font-bold text-teal-400">CALL / MC / CS:</span>
-            <p className="text-slate-300 mt-0.5">Super 5, S.Sup 2.5, Head 6.25, SH 1.25</p>
+            <span className="font-bold text-teal-400">👥 Staff (มี SHead):</span>
+            <p className="text-slate-300 mt-0.5">Super <b>5</b> / S.Super <b>2.5</b> / Head <b>6.25</b> / SHead <b>1.25</b></p>
+            <p className="text-slate-500 mt-0.5 text-[10px]">CC, CCAD, CS, MKT, WD</p>
           </div>
-          <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/20">
-            <span className="font-bold text-amber-400">CR:</span>
-            <p className="text-slate-300 mt-0.5">Super 5, S.Sup 2.5, Head 7.5</p>
+          <div className="p-2 rounded-xl bg-emerald-500/10 border border-emerald-500/20">
+            <span className="font-bold text-emerald-400">👤 Staff (ไม่มี SHead):</span>
+            <p className="text-slate-300 mt-0.5">Super <b>5</b> / S.Super <b>2.5</b> / Head <b>7.5</b></p>
+            <p className="text-slate-500 mt-0.5 text-[10px]">CR, SALES (SP), QA</p>
           </div>
         </div>
       </div>
@@ -632,7 +638,14 @@ export default function EvaluatorAssignmentsPage() {
               groupedAssignments.map((a) => (
                 <tr key={a.id} className="hover:bg-muted/40 transition-colors">
                   <td>
-                    <div className="font-semibold text-foreground">{a.evaluatorUser.fullName}</div>
+                    <div className="font-semibold text-foreground flex items-center gap-1.5">
+                      {a.evaluatorUser.fullName}
+                      {extractNickname(a.evaluatorUser.fullName) && (
+                        <span className="px-1.5 py-0.5 rounded-md bg-primary/10 text-primary text-[10px] font-bold">
+                          {extractNickname(a.evaluatorUser.fullName)}
+                        </span>
+                      )}
+                    </div>
                     <div className="text-xs text-muted-foreground">@{a.evaluatorUser.username}</div>
                   </td>
                   <td>
@@ -695,20 +708,20 @@ export default function EvaluatorAssignmentsPage() {
         </table>
       </div>
 
-      {/* ONE-CLICK PACKAGE MODAL */}
+      {/* ONE-CLICK PACKAGE MODAL - UPDATED */}
       {showPackageModal && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-card w-full max-w-xl rounded-2xl border border-border shadow-2xl p-6 space-y-5 animate-fade-in max-h-[90vh] overflow-y-auto">
+          <div className="bg-card w-full max-w-2xl rounded-2xl border border-border shadow-2xl p-6 space-y-5 animate-fade-in max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between border-b border-border pb-3">
               <div>
                 <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
-                  <span>⚡</span> มอบหมายชุดสิทธิ์มาตรฐานในคลิกเดียว (1-Click Package)
+                  <span>⚡</span> มอบหมายชุดสิทธิ์มาตรฐาน (1-Click Package)
                 </h2>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  สร้างชุดการมอบหมายและสัดส่วนคะแนนครบ 3 ระดับงานอัตโนมัติ ไม่ต้องกดทีละรายการ
+                  สร้างชุดการมอบหมายพร้อมน้ำหนักคะแนนตามโครงสร้างองค์กร ครอบคลุมทุกรอบ (ไม่จำกัดรอบ)
                 </p>
               </div>
-              <button onClick={() => setShowPackageModal(false)} className="text-muted-foreground hover:text-foreground">✕</button>
+              <button onClick={() => setShowPackageModal(false)} className="text-muted-foreground hover:text-foreground text-xl">✕</button>
             </div>
 
             {packageError && (
@@ -717,135 +730,138 @@ export default function EvaluatorAssignmentsPage() {
               </div>
             )}
 
-            <form onSubmit={handlePackageSubmit} className="space-y-4">
-              {/* Evaluator & Main Team */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-bold mb-1 text-foreground">เลือกผู้ประเมิน *</label>
-                  <select
-                    required
-                    value={packageData.evaluatorUserId}
-                    onChange={(e) => setPackageData({ ...packageData, evaluatorUserId: e.target.value })}
-                    className="w-full px-3 py-2.5 bg-background border border-input rounded-xl text-sm font-semibold"
-                  >
-                    <option value="">เลือกผู้ประเมิน</option>
-                    {evaluators.map((u) => (
-                      <option key={u.id} value={u.id}>{u.fullName} (@{u.username})</option>
-                    ))}
-                  </select>
-                </div>
+            <form onSubmit={handlePackageSubmit} className="space-y-5">
+              {/* Evaluator */}
+              <div>
+                <label className="block text-sm font-bold mb-1 text-foreground">เลือกผู้ประเมิน (Evaluator) *</label>
+                <select
+                  required
+                  value={packageData.evaluatorUserId}
+                  onChange={(e) => setPackageData({ ...packageData, evaluatorUserId: e.target.value })}
+                  className="w-full px-3 py-2.5 bg-background border border-input rounded-xl text-sm font-semibold"
+                >
+                  <option value="">เลือกผู้ประเมิน</option>
+                  {evaluators.map((u) => {
+                    const nick = extractNickname(u.fullName);
+                    return (
+                      <option key={u.id} value={u.id}>
+                        {u.fullName}{nick ? ` ("${nick}")` : ""} — @{u.username}
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
 
+              {/* Package Role Cards (4 types) */}
+              <div>
+                <label className="block text-sm font-bold mb-2 text-foreground">เลือกบทบาทผู้ประเมิน (Role Template) *</label>
+                <div className="grid grid-cols-2 gap-3">
+
+                  {/* SUPER */}
+                  <div onClick={() => setPackageData({ ...packageData, packageType: "SUPER" })}
+                    className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
+                      packageData.packageType === "SUPER" ? "border-amber-500 bg-amber-500/10" : "border-border bg-background hover:bg-muted/50"
+                    }`}>
+                    <div className="font-extrabold text-sm text-foreground flex items-center gap-1.5">👑 Super</div>
+                    <div className="mt-2 text-[11px] space-y-0.5 text-slate-300">
+                      <div>• SupportSuper: <b>15 pts</b> (100%)</div>
+                      <div>• Head: <b>10 pts</b> (66.7%)</div>
+                      <div>• SHead / Staff: <b>5 pts</b> (33.3%)</div>
+                    </div>
+                  </div>
+
+                  {/* SUPPORT SUPER */}
+                  <div onClick={() => setPackageData({ ...packageData, packageType: "SUPPORT_SUPER" })}
+                    className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
+                      packageData.packageType === "SUPPORT_SUPER" ? "border-orange-500 bg-orange-500/10" : "border-border bg-background hover:bg-muted/50"
+                    }`}>
+                    <div className="font-extrabold text-sm text-foreground flex items-center gap-1.5">🛡️ Support Super</div>
+                    <div className="mt-2 text-[11px] space-y-0.5 text-slate-300">
+                      <div>• Head: <b>5 pts</b> (33.3%)</div>
+                      <div>• SHead / QA / Staff: <b>2.5 pts</b> (16.7%)</div>
+                      <div className="text-slate-500">ไม่ประเมิน Super</div>
+                    </div>
+                  </div>
+
+                  {/* HEAD */}
+                  <div onClick={() => setPackageData({ ...packageData, packageType: "HEAD" })}
+                    className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
+                      packageData.packageType === "HEAD" ? "border-blue-500 bg-blue-500/10" : "border-border bg-background hover:bg-muted/50"
+                    }`}>
+                    <div className="font-extrabold text-sm text-foreground flex items-center gap-1.5">🔵 Head</div>
+                    <div className="mt-2 text-[11px] space-y-0.5 text-slate-300">
+                      <div>• SupportHead: <b>7.5 pts</b> (50%)</div>
+                      <div>• Staff (มี SHead): <b>6.25 pts</b> (41.7%)</div>
+                      <div>• Staff (ไม่มี SHead): <b>7.5 pts</b> (50%)</div>
+                    </div>
+                  </div>
+
+                  {/* SUPPORT HEAD */}
+                  <div onClick={() => setPackageData({ ...packageData, packageType: "SUPPORT_HEAD" })}
+                    className={`p-3.5 rounded-xl border-2 cursor-pointer transition-all ${
+                      packageData.packageType === "SUPPORT_HEAD" ? "border-emerald-500 bg-emerald-500/10" : "border-border bg-background hover:bg-muted/50"
+                    }`}>
+                    <div className="font-extrabold text-sm text-foreground flex items-center gap-1.5">🟢 Support Head</div>
+                    <div className="mt-2 text-[11px] space-y-0.5 text-slate-300">
+                      <div>• พนักงานในแผนก: <b>1.25 pts</b> (8.3%)</div>
+                      <div className="text-slate-500">เฉพาะแผนก CC, CCAD, CS, MKT, WD</div>
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+
+              {/* Team selection - only for Super/SSuper */}
+              {(packageData.packageType === "SUPER" || packageData.packageType === "SUPPORT_SUPER") && (
                 <div>
-                  <label className="block text-sm font-bold mb-1 text-foreground">เลือกทีมหลักที่ดูแล *</label>
+                  <label className="block text-sm font-bold mb-1 text-foreground">ทีมหลักที่ดูแล *</label>
                   <select
                     required
                     value={packageData.targetMainTeam}
                     onChange={(e) => setPackageData({ ...packageData, targetMainTeam: e.target.value })}
-                    className="w-full px-3 py-2.5 bg-background border border-input rounded-xl text-sm font-bold text-primary"
+                    className="w-full px-3 py-2 bg-background border border-input rounded-xl text-sm font-bold text-primary"
                   >
-                    <option value="TEAM_A">🔵 ทีม A (Team A)</option>
-                    <option value="TEAM_B">🟣 ทีม B (Team B)</option>
-                    <option value="TEAM_C">🟢 ทีม C (Team C)</option>
+                    <option value="TEAM_A">🔵 ทีม A</option>
+                    <option value="TEAM_B">🟣 ทีม B</option>
+                    <option value="TEAM_C">🟢 ทีม C</option>
                   </select>
                 </div>
-              </div>
+              )}
 
-              {/* Package Role Selection */}
-              <div>
-                <label className="block text-sm font-bold mb-2 text-foreground">
-                  เลือกแม่แบบบทบาท (Role Template) *
-                </label>
-                <div className="grid grid-cols-2 gap-3">
-                  {/* SUPER PACKAGE CARD */}
-                  <div
-                    onClick={() => setPackageData({ ...packageData, packageType: "SUPER" })}
-                    className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${
-                      packageData.packageType === "SUPER"
-                        ? "border-amber-500 bg-amber-500/10 shadow-md"
-                        : "border-border bg-background hover:bg-muted/50"
-                    }`}
+              {/* Dept selection - only for Head/SupportHead */}
+              {(packageData.packageType === "HEAD" || packageData.packageType === "SUPPORT_HEAD") && (
+                <div>
+                  <label className="block text-sm font-bold mb-1 text-foreground">แผนกที่ดูแล *</label>
+                  <select
+                    required
+                    value={packageData.targetDeptId}
+                    onChange={(e) => setPackageData({ ...packageData, targetDeptId: e.target.value })}
+                    className="w-full px-3 py-2 bg-background border border-input rounded-xl text-sm font-semibold"
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="font-extrabold text-sm text-foreground flex items-center gap-1.5">
-                        <span>👑</span> ชุดสิทธิ์ Super
-                      </span>
-                      {packageData.packageType === "SUPER" && (
-                        <span className="w-2 h-2 rounded-full bg-amber-400"></span>
-                      )}
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      สำหรับผู้ประเมินระดับ Super (ดูแลทุกแผนกในทีม)
-                    </p>
-                    <div className="mt-3 space-y-1 text-[11px] border-t border-border/60 pt-2 text-slate-300">
-                      <div>🔹 ประเมิน <b>Head</b>: น้ำหนัก <b>66.7%</b> (10/15)</div>
-                      <div>🔹 ประเมิน <b>QA & Sup.Head</b>: น้ำหนัก <b>33.3%</b> (5/15)</div>
-                      <div>🔹 ประเมิน <b>พนักงาน 7 แผนก</b>: น้ำหนัก <b>33.3%</b> (5/15)</div>
-                    </div>
-                  </div>
-
-                  {/* SUPPORT SUPER PACKAGE CARD */}
-                  <div
-                    onClick={() => setPackageData({ ...packageData, packageType: "SUPPORT_SUPER" })}
-                    className={`p-4 rounded-xl border-2 cursor-pointer transition-all ${
-                      packageData.packageType === "SUPPORT_SUPER"
-                        ? "border-orange-500 bg-orange-500/10 shadow-md"
-                        : "border-border bg-background hover:bg-muted/50"
-                    }`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-extrabold text-sm text-foreground flex items-center gap-1.5">
-                        <span>🛡️</span> ชุดสิทธิ์ Support Super
-                      </span>
-                      {packageData.packageType === "SUPPORT_SUPER" && (
-                        <span className="w-2 h-2 rounded-full bg-orange-400"></span>
-                      )}
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      สำหรับผู้ประเมินระดับ Support Super / Sub-Super
-                    </p>
-                    <div className="mt-3 space-y-1 text-[11px] border-t border-border/60 pt-2 text-slate-300">
-                      <div>🔹 ประเมิน <b>Head</b>: น้ำหนัก <b>33.3%</b> (5/15)</div>
-                      <div>🔹 ประเมิน <b>QA & Sup.Head</b>: น้ำหนัก <b>16.7%</b> (2.5/15)</div>
-                      <div>🔹 ประเมิน <b>พนักงาน 7 แผนก</b>: น้ำหนัก <b>16.7%</b> (2.5/15)</div>
-                    </div>
-                  </div>
+                    <option value="">เลือกแผนก</option>
+                    {departments
+                      .filter((d) => packageData.packageType === "HEAD"
+                        ? !["SUPER"].includes(d.code)
+                        : ["CC", "CCAD", "CS", "MKT", "WITHDRAW"].includes(d.code)
+                      )
+                      .map((d) => (
+                        <option key={d.id} value={d.id}>{d.name} ({d.code})</option>
+                      ))}
+                  </select>
                 </div>
-              </div>
+              )}
 
-              {/* Period selection */}
-              <div>
-                <label className="block text-sm font-medium mb-1 text-foreground">รอบการประเมิน</label>
-                <select
-                  value={packageData.periodId}
-                  onChange={(e) => setPackageData({ ...packageData, periodId: e.target.value })}
-                  className="w-full px-3 py-2 bg-background border border-input rounded-xl text-sm"
-                >
-                  <option value="">ทุกรอบ (ค่าเริ่มต้นตลอดไป)</option>
-                  {periods.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="p-3.5 rounded-xl bg-slate-900 border border-border text-xs text-slate-300 flex items-center gap-2">
+              <div className="p-3 rounded-xl bg-slate-900 border border-border text-xs text-slate-300 flex items-center gap-2">
                 <span>💡</span>
-                <span>เมื่อกดบันทึก ระบบจะสร้างรายการมอบหมาย 3 รายการพร้อมกันให้อัตโนมัติทันที</span>
+                <span>Assignments ทั้งหมดจะครอบคลุม <b>ทุกรอบประเมิน รวมถึงรอบในอนาคต</b> (periodId = ไม่จำกัด)</span>
               </div>
 
               <div className="pt-3 flex justify-end gap-2 border-t border-border">
-                <button
-                  type="button"
-                  onClick={() => setShowPackageModal(false)}
-                  className="px-4 py-2 border border-border rounded-xl text-sm font-medium hover:bg-muted"
-                >
-                  ยกเลิก
-                </button>
-                <button
-                  type="submit"
-                  disabled={packageSubmitting}
-                  className="px-5 py-2.5 bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-xl text-sm font-bold hover:from-amber-600 hover:to-orange-700 shadow-md disabled:opacity-50"
-                >
-                  {packageSubmitting ? "กำลังสร้างชุดสิทธิ์..." : "🚀 บันทึกชุดสิทธิ์ทั้งหมดทันที"}
+                <button type="button" onClick={() => setShowPackageModal(false)}
+                  className="px-4 py-2 border border-border rounded-xl text-sm font-medium hover:bg-muted">ยกเลิก</button>
+                <button type="submit" disabled={packageSubmitting}
+                  className="px-5 py-2.5 bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-xl text-sm font-bold hover:from-amber-600 hover:to-orange-700 shadow-md disabled:opacity-50">
+                  {packageSubmitting ? "กำลังสร้างชุดสิทธิ์..." : "🚀 บันทึกชุดสิทธิ์"}
                 </button>
               </div>
             </form>
