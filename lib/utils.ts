@@ -51,9 +51,28 @@ export function getStatusLabel(status: string): string {
 export function getRoleLabel(role: string): string {
   const labels: Record<string, string> = {
     MANAGER: "ผู้จัดการ",
+    HEAD: "หัวหน้าแผนก (Head)",
+    SUPPORT_HEAD: "ผู้ช่วยหัวหน้าแผนก (Support Head)",
     EVALUATOR: "ผู้ประเมิน",
   };
   return labels[role] ?? role;
+}
+
+/**
+ * Extracts a person's nickname or personal name from their role/position-prefixed fullName
+ * e.g. "HeadCC หมู" -> "หมู", "Support Head CC มะเดี่ยว" -> "มะเดี่ยว", "HeadCR ดารารัตน์" -> "ดารารัตน์"
+ */
+export function extractNickname(fullName: string | null | undefined): string {
+  if (!fullName) return "";
+  const trimmed = fullName.trim();
+  if (trimmed === "ผู้จัดการระบบ" || trimmed === "ผู้จัดการ" || trimmed === "Manager") return "";
+
+  // Remove known role prefixes
+  const clean = trimmed
+    .replace(/^(SupportSuper|Super|HeadCCAD|HeadCC|HeadCR|HeadCS|HeadMKT|HeadRD|HeadSP|Tranfer|STranfer|Support\s*Head\s*(CCAD|CC|CS|MKT|Withdraw|Transfer)?|Head\s*(CR|CloseSale|Marketing|QA|RD|SalePromotion|Withdraw|Transfer)?)\s*/i, "")
+    .trim();
+
+  return clean !== trimmed || !trimmed.includes(" ") ? clean : trimmed;
 }
 
 export function getStatusClass(status: string): string {
