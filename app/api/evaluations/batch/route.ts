@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { requireAuth } from "@/lib/auth/session";
 import { createAuditLog } from "@/lib/services/audit.service";
-import { AuditAction, Role, EvaluationStatus } from "@prisma/client";
+import { AuditAction, EvaluationStatus } from "@prisma/client";
 import {
   calculateEvaluationScore,
   scoreToPercentage,
@@ -18,7 +18,13 @@ export async function POST(req: NextRequest) {
 
     const { periodId, evalStartDate, evalEndDate, isDraft, evaluations } = body;
 
-    if (!periodId || !evalStartDate || !evalEndDate || !Array.isArray(evaluations) || evaluations.length === 0) {
+    if (
+      !periodId ||
+      !evalStartDate ||
+      !evalEndDate ||
+      !Array.isArray(evaluations) ||
+      evaluations.length === 0
+    ) {
       return NextResponse.json({ error: "ข้อมูลการประเมินไม่ครบถ้วน" }, { status: 400 });
     }
 
@@ -62,71 +68,85 @@ export async function POST(req: NextRequest) {
     const status = isDraft === true ? EvaluationStatus.DRAFT : EvaluationStatus.SUBMITTED;
     const submittedAt = isDraft === true ? null : new Date();
 
-    // Process each employee evaluation
-    const createdRecords = await prisma.$transaction(async (tx) => {
-      const records = [];
+    // Prefetch all employees in ONE single query
+    const empIds = evaluations.map((e: any) => e.employeeId).filter(Boolean);
+    const employees = await prisma.employee.findMany({
+      where: { id: { in: empIds } },
+      select: { id: true, departmentId: true, teamId: true },
+    });
+    const empMap = new Map(employees.map((e) => [e.id, e]));
 
-      for (const item of evaluations) {
-        const { employeeId, comment, scores } = item;
-        if (!employeeId || !scores || scores.length === 0) continue;
-
-        // Fetch employee details
-        const emp = await tx.employee.findUnique({
-          where: { id: employeeId },
-          select: { id: true, departmentId: true, teamId: true },
-        });
-        if (!emp) continue;
-
-        // Score calculations
-        const scoreValues = scores.map((s: any) => ({
-          scoreValue: s.scoreValue,
-          minScore,
-          maxScore,
-        }));
-        const rawScore = calculateEvaluationScore(scoreValues);
-        const rawPercentage = scoreToPercentage(rawScore, minScore, maxScore);
-
-        // Find weight percentage
-        const assignment = assignments.find(
-          (a) =>
-            a.targetEmployeeId === employeeId ||
-            (a.targetDepartmentId && a.targetDepartmentId === emp.departmentId) ||
-            (a.targetTeamId && emp.teamId && a.targetTeamId === emp.teamId)
-        );
-        const weightPercentage = Number(assignment?.weightPercentage ?? 0);
-        const weightedScore = calculateWeightedScore(rawPercentage, weightPercentage);
-        const grade = calculateGrade(rawPercentage, gradeRange);
-
-        const rec = await tx.evaluationRecord.create({
-          data: {
+    // Process all employee evaluations with generous timeout & parallel insertion
+    const createdRecords = await prisma.$transaction(
+      async (tx) => {
+        // Delete any existing records for these employees in this period by this evaluator to avoid duplicate errors
+        await tx.evaluationRecord.deleteMany({
+          where: {
             periodId,
-            employeeId,
             evaluatorUserId: currentUser.id,
-            evalStartDate: new Date(evalStartDate),
-            evalEndDate: new Date(evalEndDate),
-            workingDaysCount,
-            status,
-            comment: comment || null,
-            rawScore,
-            weightedScore,
-            finalPercentage: rawPercentage,
-            grade,
-            submittedAt,
-            scores: {
-              create: scores.map((s: any) => ({
-                questionId: s.questionId,
-                scoreValue: s.scoreValue,
-                comment: s.comment || null,
-              })),
-            },
+            employeeId: { in: empIds },
           },
         });
 
-        records.push(rec);
-      }
+        const createPromises = evaluations.map((item: any) => {
+          const { employeeId, comment, scores } = item;
+          if (!employeeId || !scores || scores.length === 0) return null;
 
-      return records;
-    });
+          const emp = empMap.get(employeeId);
+          if (!emp) return null;
+
+          const scoreValues = scores.map((s: any) => ({
+            scoreValue: s.scoreValue,
+            minScore,
+            maxScore,
+          }));
+          const rawScore = calculateEvaluationScore(scoreValues);
+          const rawPercentage = scoreToPercentage(rawScore, minScore, maxScore);
+
+          const assignment = assignments.find(
+            (a) =>
+              a.targetEmployeeId === employeeId ||
+              (a.targetDepartmentId && a.targetDepartmentId === emp.departmentId) ||
+              (a.targetTeamId && emp.teamId && a.targetTeamId === emp.teamId)
+          );
+          const weightPercentage = Number(assignment?.weightPercentage ?? 0);
+          const weightedScore = calculateWeightedScore(rawPercentage, weightPercentage);
+          const grade = calculateGrade(rawPercentage, gradeRange);
+
+          return tx.evaluationRecord.create({
+            data: {
+              periodId,
+              employeeId,
+              evaluatorUserId: currentUser.id,
+              evalStartDate: new Date(evalStartDate),
+              evalEndDate: new Date(evalEndDate),
+              workingDaysCount,
+              status,
+              comment: comment || null,
+              rawScore,
+              weightedScore,
+              finalPercentage: rawPercentage,
+              grade,
+              submittedAt,
+              scores: {
+                create: scores.map((s: any) => ({
+                  questionId: s.questionId,
+                  scoreValue: s.scoreValue,
+                  comment: s.comment || null,
+                })),
+              },
+            },
+          });
+        });
+
+        const results = await Promise.all(createPromises.filter(Boolean));
+        return results;
+      },
+      {
+        maxWait: 30000,
+        timeout: 60000,
+      }
+    );
 
     await createAuditLog({
       userId: currentUser.id,
@@ -141,16 +161,24 @@ export async function POST(req: NextRequest) {
       },
     });
 
-    return NextResponse.json({
-      success: true,
-      message: `บันทึกผลการประเมินพนักงาน ${createdRecords.length} คน เรียบร้อยแล้ว`,
-      count: createdRecords.length,
-      data: createdRecords,
-    }, { status: 201 });
+    return NextResponse.json(
+      {
+        success: true,
+        message: `บันทึกผลการประเมินพนักงาน ${createdRecords.length} คน เรียบร้อยแล้ว`,
+        count: createdRecords.length,
+        data: createdRecords,
+      },
+      { status: 201 }
+    );
   } catch (error: any) {
-    if (error.message === "UNAUTHORIZED") return NextResponse.json({ error: "กรุณาเข้าสู่ระบบ" }, { status: 401 });
-    if (error.message === "FORBIDDEN") return NextResponse.json({ error: "ไม่มีสิทธิ์เข้าถึง" }, { status: 403 });
+    if (error.message === "UNAUTHORIZED")
+      return NextResponse.json({ error: "กรุณาเข้าสู่ระบบ" }, { status: 401 });
+    if (error.message === "FORBIDDEN")
+      return NextResponse.json({ error: "ไม่มีสิทธิ์เข้าถึง" }, { status: 403 });
     console.error("POST /api/evaluations/batch error:", error);
-    return NextResponse.json({ error: "เกิดข้อผิดพลาดในการบันทึกการประเมินรวม" }, { status: 500 });
+    return NextResponse.json(
+      { error: error?.message || "เกิดข้อผิดพลาดในการบันทึกการประเมินรวม" },
+      { status: 500 }
+    );
   }
 }
