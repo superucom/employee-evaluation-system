@@ -25,7 +25,17 @@ export async function GET(req: NextRequest) {
       orderBy: { createdAt: "desc" },
       include: {
         evaluatorUser: { select: { id: true, fullName: true, username: true, role: true } },
-        targetEmployee: { select: { id: true, name: true, employeeCode: true } },
+        targetEmployee: {
+          select: {
+            id: true,
+            name: true,
+            nickname: true,
+            employeeCode: true,
+            position: true,
+            department: { select: { id: true, name: true, code: true } },
+            team: { select: { id: true, name: true, code: true } },
+          },
+        },
         targetDepartment: { select: { id: true, name: true } },
         targetTeam: {
           select: {

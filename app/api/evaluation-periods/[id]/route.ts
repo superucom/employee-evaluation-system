@@ -51,3 +51,61 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     return NextResponse.json({ error: "เกิดข้อผิดพลาด" }, { status: 500 });
   }
 }
+
+export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  try {
+    const manager = await requireManager();
+    const { id } = await params;
+
+    const existing = await prisma.evaluationPeriod.findUnique({
+      where: { id },
+      include: {
+        _count: {
+          select: {
+            evaluationRecords: true,
+            evaluatorAssignments: true,
+            workingDayConfigs: true,
+          },
+        },
+      },
+    });
+
+    if (!existing) {
+      return NextResponse.json({ error: "ไม่พบรอบการประเมิน" }, { status: 404 });
+    }
+
+    // Clean up dependent records in transaction
+    await prisma.$transaction(async (tx) => {
+      // 1. Delete working day configs
+      await tx.workingDayConfig.deleteMany({ where: { periodId: id } });
+
+      // 2. Disassociate or delete evaluator assignments linked specifically to this period
+      await tx.evaluatorAssignment.deleteMany({ where: { periodId: id } });
+
+      // 3. Delete evaluation scores & records
+      const records = await tx.evaluationRecord.findMany({ where: { periodId: id }, select: { id: true } });
+      const recordIds = records.map((r) => r.id);
+      if (recordIds.length > 0) {
+        await tx.evaluationScore.deleteMany({ where: { recordId: { in: recordIds } } });
+        await tx.evaluationRecord.deleteMany({ where: { periodId: id } });
+      }
+
+      // 4. Delete the period itself
+      await tx.evaluationPeriod.delete({ where: { id } });
+    });
+
+    await createAuditLog({
+      userId: manager.id,
+      action: AuditAction.DELETE,
+      entityType: "EvaluationPeriod",
+      entityId: id,
+      oldValue: { name: existing.name, status: existing.status },
+    });
+
+    return NextResponse.json({ success: true, message: "ลบรอบการประเมินสำเร็จ" });
+  } catch (error: any) {
+    if (error.message === "UNAUTHORIZED") return NextResponse.json({ error: "กรุณาเข้าสู่ระบบ" }, { status: 401 });
+    if (error.message === "FORBIDDEN") return NextResponse.json({ error: "ไม่มีสิทธิ์เข้าถึง" }, { status: 403 });
+    return NextResponse.json({ error: error.message || "เกิดข้อผิดพลาดในการลบ" }, { status: 500 });
+  }
+}
