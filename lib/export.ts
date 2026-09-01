@@ -103,9 +103,31 @@ export function exportMonthlyEvaluationExcel({
     }
   });
 
-  // Sort by name
-  headEmployees.sort((a, b) => a.employee.name.localeCompare(b.employee.name, "th"));
-  staffEmployees.sort((a, b) => a.employee.name.localeCompare(b.employee.name, "th"));
+  const getDepartmentRank = (deptOrPos: string): number => {
+    const d = (deptOrPos || "").toLowerCase();
+    if (d.includes("withdraw") || d.includes("wd") || d.includes("tranfer") || d.includes("transfer")) {
+      return 1;
+    }
+    if (d === "cr" || /\bcr\b/i.test(d) || d.includes("head cr")) {
+      return 3;
+    }
+    return 2;
+  };
+
+  const compareExportEmployees = (a: { employee: any }, b: { employee: any }) => {
+    const deptA = a.employee.position || (a.employee.team?.name ? `${a.employee.department?.name} / ${a.employee.team?.name}` : a.employee.department?.name) || "-";
+    const deptB = b.employee.position || (b.employee.team?.name ? `${b.employee.department?.name} / ${b.employee.team?.name}` : b.employee.department?.name) || "-";
+    const rankA = getDepartmentRank(deptA);
+    const rankB = getDepartmentRank(deptB);
+    if (rankA !== rankB) return rankA - rankB;
+    const deptComp = deptA.localeCompare(deptB, "th");
+    if (deptComp !== 0) return deptComp;
+    return (a.employee.name || "").localeCompare(b.employee.name || "", "th");
+  };
+
+  // Sort by department (WD top, middle depts, CR bottom) and then employee name
+  headEmployees.sort(compareExportEmployees);
+  staffEmployees.sort(compareExportEmployees);
 
   // Build 2D rows for SheetJS
   const wsData: any[][] = [];
