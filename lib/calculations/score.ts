@@ -144,6 +144,39 @@ export function getTotalWeight(weights: number[]): number {
 }
 
 // ==========================================
+// 7. Get interpretation label for a raw score using ScoreScaleLabel from DB
+// Falls back to threshold-based labels if no DB labels available
+// ==========================================
+export interface ScoreLabelEntry {
+  scoreValue: number;
+  label: string;
+}
+
+export function getScoreLabel(
+  score: number,
+  labels: ScoreLabelEntry[]
+): string {
+  if (!labels || labels.length === 0) {
+    // Fallback: threshold-based (used only when DB labels are unavailable)
+    if (score >= 4.5) return "ดีเยี่ยม";
+    if (score >= 3.5) return "ดี";
+    if (score >= 2.5) return "ผ่านเกณฑ์";
+    if (score > 0) return "ต้องปรับปรุง";
+    return "บกพร่อง";
+  }
+
+  // Exact match first
+  const exact = labels.find((l) => l.scoreValue === Math.round(score));
+  if (exact) return exact.label;
+
+  // Nearest match
+  const sorted = [...labels].sort((a, b) =>
+    Math.abs(a.scoreValue - score) - Math.abs(b.scoreValue - score)
+  );
+  return sorted[0]?.label ?? "N/A";
+}
+
+// ==========================================
 // Export for use in API and tests
 // ==========================================
 export const scoreCalculations = {
@@ -154,4 +187,5 @@ export const scoreCalculations = {
   calculateGrade,
   validateTotalWeight,
   getTotalWeight,
+  getScoreLabel,
 };
