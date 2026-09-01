@@ -92,6 +92,12 @@ export default function EvaluatorAssignmentsPage() {
   const [formError, setFormError] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
+  // Search and Filters
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterEvaluatorId, setFilterEvaluatorId] = useState("");
+  const [filterType, setFilterType] = useState<string>("ALL");
+  const [filterCategoryId, setFilterCategoryId] = useState("");
+
   // One-Click Preset Package Modal
   const [showPackageModal, setShowPackageModal] = useState(false);
   const [packageData, setPackageData] = useState({
@@ -504,6 +510,42 @@ export default function EvaluatorAssignmentsPage() {
     });
   }, [assignments, departments]);
 
+  const filteredGroupedAssignments = useMemo(() => {
+    return groupedAssignments.filter((a) => {
+      if (filterEvaluatorId && a.evaluatorUser.id !== filterEvaluatorId) {
+        return false;
+      }
+      if (filterType !== "ALL" && a.assignmentType !== filterType) {
+        return false;
+      }
+      if (filterCategoryId) {
+        if (!a.category || a.category.id !== filterCategoryId) {
+          return false;
+        }
+      }
+      if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase().trim();
+        const evalName = (a.evaluatorUser.fullName || "").toLowerCase();
+        const evalUsername = (a.evaluatorUser.username || "").toLowerCase();
+        const targetLabel = (a.targetLabel || "").toLowerCase();
+        const includedDepts = (a.includedDeptsText || "").toLowerCase();
+        const catName = (a.category?.name || "").toLowerCase();
+        const periodName = (a.period?.name || "").toLowerCase();
+
+        const isMatch =
+          evalName.includes(q) ||
+          evalUsername.includes(q) ||
+          targetLabel.includes(q) ||
+          includedDepts.includes(q) ||
+          catName.includes(q) ||
+          periodName.includes(q);
+
+        if (!isMatch) return false;
+      }
+      return true;
+    });
+  }, [groupedAssignments, filterEvaluatorId, filterType, filterCategoryId, searchQuery]);
+
   const selectedDeptTeams = departments.find((d) => d.id === formData.targetDepartmentId)?.teams || [];
 
   const getDeptIcon = (name: string) => {
@@ -607,6 +649,102 @@ export default function EvaluatorAssignmentsPage() {
         </div>
       </div>
 
+      {/* Search & Filter Toolbar */}
+      <div className="bg-card p-4 rounded-2xl border border-border space-y-3 shadow-sm">
+        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
+          {/* Search Box */}
+          <div className="relative flex-1 min-w-[260px]">
+            <input
+              type="text"
+              placeholder="🔍 ค้นหาชื่อผู้ประเมิน, @username, เป้าหมาย (ชื่อ/รหัส), แผนก, หรือหมวดหมู่..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-8 py-2 bg-background border border-input rounded-xl text-sm font-medium focus:border-primary transition-colors"
+            />
+            <span className="absolute left-3 top-2.5 text-muted-foreground text-xs">🔍</span>
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="absolute right-2.5 top-2 text-xs text-muted-foreground hover:text-foreground font-bold p-1"
+                title="ล้างคำค้นหา"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          {/* Quick Filters */}
+          <div className="flex items-center gap-2 flex-wrap text-xs">
+            {/* Filter Evaluator */}
+            <select
+              value={filterEvaluatorId}
+              onChange={(e) => setFilterEvaluatorId(e.target.value)}
+              className="px-3 py-2 bg-background border border-input rounded-xl text-xs font-semibold focus:border-primary max-w-[200px]"
+            >
+              <option value="">👤 ผู้ประเมินทั้งหมด</option>
+              {evaluators.map((ev) => (
+                <option key={ev.id} value={ev.id}>
+                  {ev.fullName} (@{ev.username})
+                </option>
+              ))}
+            </select>
+
+            {/* Filter Type */}
+            <select
+              value={filterType}
+              onChange={(e) => setFilterType(e.target.value)}
+              className="px-3 py-2 bg-background border border-input rounded-xl text-xs font-semibold focus:border-primary"
+            >
+              <option value="ALL">🎯 ทุกประเภทการมอบหมาย</option>
+              <option value="EMPLOYEE">👤 รายบุคคล (Employee)</option>
+              <option value="TEAM">👥 ทั้งทีมหลัก (Main Team)</option>
+              <option value="DEPARTMENT">🏢 ทั้งแผนก (Department)</option>
+            </select>
+
+            {/* Filter Category */}
+            <select
+              value={filterCategoryId}
+              onChange={(e) => setFilterCategoryId(e.target.value)}
+              className="px-3 py-2 bg-background border border-input rounded-xl text-xs font-semibold focus:border-primary max-w-[180px]"
+            >
+              <option value="">📝 ทุกหมวดหมู่คำถาม</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+
+            {/* Reset Button */}
+            {(searchQuery || filterEvaluatorId || filterType !== "ALL" || filterCategoryId) && (
+              <button
+                onClick={() => {
+                  setSearchQuery("");
+                  setFilterEvaluatorId("");
+                  setFilterType("ALL");
+                  setFilterCategoryId("");
+                }}
+                className="px-3 py-2 rounded-xl bg-destructive/10 text-destructive hover:bg-destructive/20 font-bold transition-colors"
+              >
+                ล้างตัวกรอง
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Count summary bar */}
+        <div className="flex items-center justify-between text-xs text-muted-foreground pt-1 border-t border-border/50">
+          <span>
+            แสดง <b className="text-primary font-bold">{filteredGroupedAssignments.length}</b> รายการ (จากทั้งหมด {groupedAssignments.length} กลุ่มสิทธิ์ / {assignments.length} สิทธิ์ย่อย)
+          </span>
+          {(searchQuery || filterEvaluatorId || filterType !== "ALL" || filterCategoryId) && (
+            <span className="text-amber-400 font-semibold flex items-center gap-1">
+              <span>⚡</span> กำลังใช้ตัวกรอง
+            </span>
+          )}
+        </div>
+      </div>
+
       {/* Table */}
       <div className="bg-card rounded-2xl border border-border overflow-hidden shadow-sm">
         <table className="data-table">
@@ -628,14 +766,16 @@ export default function EvaluatorAssignmentsPage() {
                   กำลังโหลดข้อมูลการมอบหมาย...
                 </td>
               </tr>
-            ) : groupedAssignments.length === 0 ? (
+            ) : filteredGroupedAssignments.length === 0 ? (
               <tr>
                 <td colSpan={7} className="text-center py-12 text-muted-foreground">
-                  ยังไม่มีการมอบหมายผู้ประเมิน
+                  {searchQuery || filterEvaluatorId || filterType !== "ALL" || filterCategoryId
+                    ? "ไม่พบข้อมูลการมอบหมายตามเงื่อนไขที่ค้นหา"
+                    : "ยังไม่มีการมอบหมายผู้ประเมิน"}
                 </td>
               </tr>
             ) : (
-              groupedAssignments.map((a) => (
+              filteredGroupedAssignments.map((a) => (
                 <tr key={a.id} className="hover:bg-muted/40 transition-colors">
                   <td>
                     <div className="font-semibold text-foreground flex items-center gap-1.5">

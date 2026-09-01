@@ -56,19 +56,12 @@ interface Department {
   teams: { id: string; name: string }[];
 }
 
-const DEFAULT_GRADES = [
-  { label: "A", minPercentage: 90, maxPercentage: 100 },
-  { label: "B", minPercentage: 80, maxPercentage: 89.99 },
-  { label: "C", minPercentage: 70, maxPercentage: 79.99 },
-  { label: "D", minPercentage: 60, maxPercentage: 69.99 },
-  { label: "F", minPercentage: 0, maxPercentage: 59.99 },
-];
-
 export default function PerformanceReportPage() {
   const [records, setRecords] = useState<PerformanceRecord[]>([]);
   const [periods, setPeriods] = useState<Period[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
-  const [grades, setGrades] = useState(DEFAULT_GRADES);
+  const [grades, setGrades] = useState<{ label: string; minPercentage: number; maxPercentage: number }[] | null>(null);
+  const [gradesLoading, setGradesLoading] = useState(true);
   const [loading, setLoading] = useState(true);
 
   // View Mode: "aggregated" (1 แถวต่อ 1 คน รวมคะแนน) หรือ "detailed" (แยกรายครั้ง)
@@ -103,8 +96,11 @@ export default function PerformanceReportPage() {
           }))
         );
       }
+      // grades loaded (even if empty — will show N/A instead of wrong hardcoded grade)
     } catch (err) {
       console.error(err);
+    } finally {
+      setGradesLoading(false);
     }
   };
 
@@ -156,7 +152,9 @@ export default function PerformanceReportPage() {
     map.forEach((empRecords, empId) => {
       const first = empRecords[0];
       let totalDays = 0;
-      let totalWeightedScoreSum = 0;
+      let totalWeightedSum = 0;
+      let totalWeightSum = 0;
+      let hasWeightedScores = false;
       const evaluatorsSet = new Set<string>();
       const comments: string[] = [];
 
@@ -165,16 +163,14 @@ export default function PerformanceReportPage() {
 
       for (const r of empRecords) {
         const days = r.workingDaysCount || 1;
-        const score = Number(r.finalPercentage || 0);
-
         totalDays += days;
-        totalWeightedScoreSum += score * days;
 
         if (r.evaluatorUser?.fullName) {
           evaluatorsSet.add(r.evaluatorUser.fullName);
         }
         if (r.comment?.trim()) {
-          comments.push(r.comment.trim());
+          const evalName = r.evaluatorUser?.fullName || "ผู้ประเมิน";
+          comments.push(`[${evalName}]: "${r.comment.trim()}"`);
         }
 
         if (new Date(r.evalStartDate) < new Date(earliestStart)) {
@@ -183,10 +179,24 @@ export default function PerformanceReportPage() {
         if (new Date(r.evalEndDate) > new Date(latestEnd)) {
           latestEnd = r.evalEndDate;
         }
+
+        if (r.weightedScore !== null && r.weightedScore !== undefined && r.finalPercentage !== null) {
+          const rawPct = Number(r.finalPercentage || 0);
+          const wScore = Number(r.weightedScore || 0);
+          totalWeightedSum += wScore;
+          const weight = rawPct > 0 ? (wScore / rawPct) * 100 : 0;
+          totalWeightSum += weight;
+          hasWeightedScores = true;
+        }
       }
 
-      const finalPercentage = totalDays > 0 ? totalWeightedScoreSum / totalDays : 0;
-      const grade = calculateGrade(finalPercentage, grades);
+      let finalPercentage = 0;
+      if (hasWeightedScores && totalWeightSum > 0) {
+        finalPercentage = (totalWeightedSum / totalWeightSum) * 100;
+      } else if (empRecords.length > 0) {
+        finalPercentage = empRecords.reduce((sum, r) => sum + Number(r.finalPercentage || 0), 0) / empRecords.length;
+      }
+      const grade = calculateGrade(finalPercentage, grades ?? []);
 
       result.push({
         employeeId: empId,
@@ -555,33 +565,44 @@ export default function PerformanceReportPage() {
 
                         {/* Expandable row showing individual evaluations */}
                         {isExpanded && (
-                          <tr key={`${emp.employeeId}-expanded`} className="bg-muted/10">
-                            <td colSpan={10} className="p-4 pl-12 bg-slate-900/60 border-y border-border">
-                              <div className="space-y-2">
-                                <div className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                                  รายการประเมินย่อยของ {emp.name} ({emp.evaluationCount} รายการ):
+                          <tr key={`${emp.employeeId}-expanded`} className="bg-[#FAF8F5] dark:bg-muted/15">
+                            <td colSpan={10} className="p-4 pl-10 sm:pl-12 bg-[#FAF8F5] dark:bg-muted/20 border-y border-[#E6E0D2] dark:border-border">
+                              <div className="space-y-2.5">
+                                <div className="flex items-center justify-between">
+                                  <div className="text-xs font-bold text-[#5A4D42] dark:text-foreground flex items-center gap-2">
+                                    <span className="w-2 h-2 rounded-full bg-primary" />
+                                    <span>รายการประเมินย่อยของ <strong>{emp.name}</strong> ({emp.evaluationCount} รายการ):</span>
+                                  </div>
                                 </div>
                                 <div className="grid grid-cols-1 gap-2">
                                   {emp.records.map((r, i) => (
                                     <div
                                       key={r.id}
-                                      className="flex items-center justify-between p-2.5 rounded-lg border border-border bg-card/60 text-xs"
+                                      className="flex flex-wrap items-center justify-between gap-3 p-3 rounded-xl border border-[#E6E0D2] dark:border-border bg-white dark:bg-card shadow-sm hover:border-primary/50 transition-colors text-xs"
                                     >
-                                      <div className="flex items-center gap-3">
-                                        <span className="font-mono text-muted-foreground">#{i + 1}</span>
-                                        <span className="font-semibold text-foreground">
+                                      <div className="flex flex-wrap items-center gap-2.5 min-w-0">
+                                        <span className="w-5 h-5 rounded-full bg-[#E8EFEA] dark:bg-primary/20 text-[#2D4438] dark:text-primary font-bold text-[11px] flex items-center justify-center font-mono">
+                                          {i + 1}
+                                        </span>
+                                        <span className="font-semibold text-[#1F1E1C] dark:text-foreground">
                                           {formatDate(r.evalStartDate)} - {formatDate(r.evalEndDate)}
                                         </span>
-                                        <span className="text-blue-400 font-medium">({r.workingDaysCount} วัน)</span>
-                                        <span className="text-muted-foreground">• ผู้ประเมิน: {r.evaluatorUser.fullName}</span>
+                                        <span className="px-2 py-0.5 rounded-md bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 font-semibold text-[11px] border border-blue-200 dark:border-blue-800/40">
+                                          {r.workingDaysCount} วัน
+                                        </span>
+                                        <span className="text-[#685C53] dark:text-muted-foreground font-medium">
+                                          ผู้ประเมิน: <strong className="text-[#1F1E1C] dark:text-foreground">{r.evaluatorUser.fullName}</strong>
+                                        </span>
                                       </div>
-                                      <div className="flex items-center gap-3">
-                                        <span className="font-bold text-primary">
+                                      <div className="flex items-center gap-2.5 flex-shrink-0">
+                                        <span className="font-bold text-emerald-800 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/40 px-2.5 py-1 rounded-lg">
                                           {r.finalPercentage ? `${Number(r.finalPercentage).toFixed(1)}%` : "-"}
                                         </span>
-                                        <span className="font-bold text-slate-300">เกรด: {r.grade || "-"}</span>
+                                        <span className="font-bold text-amber-900 dark:text-amber-200 bg-amber-100/80 dark:bg-amber-950/50 border border-amber-300/80 dark:border-amber-800/40 px-2 py-0.5 rounded-md">
+                                          เกรด {r.grade || "-"}
+                                        </span>
                                         {r.comment && (
-                                          <span className="text-muted-foreground italic truncate max-w-xs">
+                                          <span className="text-[#685C53] dark:text-muted-foreground italic bg-[#F3EFE6]/80 dark:bg-muted/40 px-2.5 py-1 rounded-lg max-w-xs truncate border border-[#E6E0D2]/60 dark:border-border">
                                             "{r.comment}"
                                           </span>
                                         )}

@@ -22,21 +22,28 @@ async function ManagerDashboard({ userId }: { userId: string }) {
     totalEmployees,
     totalEvaluators,
     totalDepartments,
-    totalTeams,
     activePeriod,
-    totalEvaluations,
     submittedEvaluations,
+    activeTeams,
   ] = await Promise.all([
     prisma.employee.count({ where: { deletedAt: null, status: "active" } }),
     prisma.user.count({ where: { deletedAt: null, isActive: true, role: "EVALUATOR" } }),
     prisma.department.count({ where: { deletedAt: null, isActive: true } }),
-    prisma.team.count({ where: { deletedAt: null, isActive: true } }),
-    prisma.evaluationPeriod.findFirst({ where: { status: "ACTIVE" } }),
-    prisma.evaluationRecord.count({}),
+    prisma.evaluationPeriod.findFirst({ where: { status: "ACTIVE" }, orderBy: { startDate: "desc" } }),
     prisma.evaluationRecord.count({ where: { status: "SUBMITTED" } }),
+    prisma.team.findMany({ where: { deletedAt: null, isActive: true }, select: { name: true, code: true } }),
   ]);
 
-  const totalMainTeams = 3; // ทีม A, ทีม B, ทีม C
+  // Count distinct main team groups (Team A / B / C / D) from actual DB data
+  const { getMainTeamName } = await import("@/lib/utils");
+  const mainTeamNames = new Set(activeTeams.map((t) => getMainTeamName(t)));
+  const totalMainTeams = mainTeamNames.size;
+
+  // Completion rate: submitted vs total active assignments (expected evaluations)
+  // Use submitted evaluations vs total evaluations in the active period (submitted + draft)
+  const totalEvaluations = await prisma.evaluationRecord.count({
+    where: activePeriod ? { periodId: activePeriod.id } : undefined,
+  });
   const completionRate = totalEvaluations > 0 ? (submittedEvaluations / totalEvaluations) * 100 : 0;
 
   const stats = [
@@ -45,6 +52,7 @@ async function ManagerDashboard({ userId }: { userId: string }) {
     { label: "ทีมหลัก", value: totalMainTeams, icon: "🏛️", gradient: "#6E8777", shadow: "rgba(110,135,119,0.25)" },
     { label: "ประเมินแล้ว", value: submittedEvaluations, icon: "✓", gradient: "#5B7565", shadow: "rgba(91,117,101,0.25)" },
     { label: "รอการประเมิน", value: Math.max(0, totalEvaluations - submittedEvaluations), icon: "⏳", gradient: "#9EAFA5", shadow: "rgba(158,175,165,0.25)" },
+    { label: "แผนก", value: totalDepartments, icon: "🏢", gradient: "#A8BFB3", shadow: "rgba(168,191,179,0.25)" },
   ];
 
   const quickActions = [

@@ -279,6 +279,26 @@ export default function TeamsAndDepartmentsPage() {
     }
   };
 
+  const handleDeleteTeam = async (t: Team) => {
+    if (!confirm(`คุณต้องการลบทีมย่อย "${t.name}" (${t.code}) หรือไม่?`)) return;
+    setTeamSubmitting(true);
+    setTeamError("");
+    try {
+      const res = await fetch(`/api/teams/${t.id}`, { method: "DELETE" });
+      const data = await res.json();
+      if (!res.ok) {
+        setTeamError(data.error || "เกิดข้อผิดพลาดในการลบทีม");
+        return;
+      }
+      setShowTeamModal(false);
+      fetchData();
+    } catch {
+      setTeamError("เกิดข้อผิดพลาดในการเชื่อมต่อ");
+    } finally {
+      setTeamSubmitting(false);
+    }
+  };
+
   // Group teams into 3 Unified Teams (Team A, Team B, Team C)
   const unifiedGroups = useMemo<UnifiedTeamGroup[]>(() => {
     const defs = [
@@ -1056,21 +1076,35 @@ export default function TeamsAndDepartmentsPage() {
                   className="w-full px-3 py-2 bg-background border border-input rounded-xl text-sm"
                 />
               </div>
-              <div className="pt-3 flex justify-end gap-2 border-t border-border">
-                <button
-                  type="button"
-                  onClick={() => setShowTeamModal(false)}
-                  className="px-4 py-2 border border-border rounded-xl text-sm font-medium hover:bg-muted"
-                >
-                  ยกเลิก
-                </button>
-                <button
-                  type="submit"
-                  disabled={teamSubmitting}
-                  className="px-4 py-2 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
-                >
-                  {teamSubmitting ? "กำลังบันทึก..." : "บันทึกทีม"}
-                </button>
+              <div className="pt-3 flex items-center justify-between gap-2 border-t border-border">
+                {editingTeam ? (
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteTeam(editingTeam)}
+                    disabled={teamSubmitting}
+                    className="px-3.5 py-2 text-xs font-semibold text-red-400 hover:bg-red-500/10 border border-red-500/20 rounded-xl transition-colors disabled:opacity-50"
+                  >
+                    🗑️ ลบทีมย่อยนี้
+                  </button>
+                ) : (
+                  <div />
+                )}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowTeamModal(false)}
+                    className="px-4 py-2 border border-border rounded-xl text-sm font-medium hover:bg-muted"
+                  >
+                    ยกเลิก
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={teamSubmitting}
+                    className="px-4 py-2 bg-primary text-primary-foreground rounded-xl text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
+                  >
+                    {teamSubmitting ? "กำลังบันทึก..." : "บันทึกทีม"}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
