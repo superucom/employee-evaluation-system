@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/db/client";
 import { requireAuth } from "@/lib/auth/session";
 import { Role } from "@prisma/client";
@@ -182,8 +182,28 @@ export async function GET(req: NextRequest) {
       }
     });
 
-    headEmployees.sort((a, b) => a.name.localeCompare(b.name, "th"));
-    staffEmployees.sort((a, b) => a.name.localeCompare(b.name, "th"));
+    const getDepartmentRank = (deptOrPos: string): number => {
+      const d = (deptOrPos || "").toLowerCase();
+      if (d.includes("withdraw") || d.includes("wd") || d.includes("tranfer") || d.includes("transfer")) {
+        return 1;
+      }
+      if (d === "cr" || /\bcr\b/i.test(d) || d.includes("head cr")) {
+        return 3;
+      }
+      return 2;
+    };
+
+    const compareByDeptAndName = (a: { departmentName: string; name: string }, b: { departmentName: string; name: string }) => {
+      const rankA = getDepartmentRank(a.departmentName);
+      const rankB = getDepartmentRank(b.departmentName);
+      if (rankA !== rankB) return rankA - rankB;
+      const deptComp = (a.departmentName || "").localeCompare(b.departmentName || "", "th");
+      if (deptComp !== 0) return deptComp;
+      return (a.name || "").localeCompare(b.name || "", "th");
+    };
+
+    headEmployees.sort(compareByDeptAndName);
+    staffEmployees.sort(compareByDeptAndName);
 
     return NextResponse.json({
       period,
