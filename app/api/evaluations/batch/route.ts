@@ -103,12 +103,11 @@ export async function POST(req: NextRequest) {
           const rawScore = calculateEvaluationScore(scoreValues);
           const rawPercentage = scoreToPercentage(rawScore, minScore, maxScore);
 
-          const assignment = assignments.find(
-            (a) =>
-              a.targetEmployeeId === employeeId ||
-              (a.targetDepartmentId && a.targetDepartmentId === emp.departmentId) ||
-              (a.targetTeamId && emp.teamId && a.targetTeamId === emp.teamId)
-          );
+          // Prioritize assignment matching: EMPLOYEE (most specific) > TEAM > DEPARTMENT
+          const assignment =
+            assignments.find((a) => a.targetEmployeeId === employeeId) ||
+            assignments.find((a) => a.targetTeamId && emp.teamId && a.targetTeamId === emp.teamId) ||
+            assignments.find((a) => a.targetDepartmentId && a.targetDepartmentId === emp.departmentId);
           const weightPercentage = Number(assignment?.weightPercentage ?? 0);
           const weightedScore = calculateWeightedScore(rawPercentage, weightPercentage);
           const grade = calculateGrade(rawPercentage, gradeRange);

@@ -15,6 +15,7 @@ export async function GET(req: NextRequest) {
     const teams = await prisma.team.findMany({
       where: {
         deletedAt: null,
+        department: { deletedAt: null },
         ...(departmentId && { departmentId }),
         ...(isActive !== null && isActive !== "" && { isActive: isActive === "true" }),
       },

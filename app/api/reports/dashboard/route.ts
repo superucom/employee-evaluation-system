@@ -13,17 +13,12 @@ export async function GET(req: NextRequest) {
     if (currentUser.role === Role.MANAGER) {
       // Manager dashboard data
       const periodWhere = periodId ? { id: periodId } : { status: "ACTIVE" };
-      const activePeriod = await prisma.evaluationPeriod.findFirst({ where: periodWhere as any });
+      const activePeriod = await prisma.evaluationPeriod.findFirst({
+        where: periodWhere as any,
+        orderBy: { startDate: "desc" }, // Deterministic: pick latest ACTIVE period
+      });
 
-      const [
-        totalEmployees,
-        totalEvaluators,
-        totalDepartments,
-        totalTeams,
-        totalPeriods,
-        totalEvaluations,
-        completedEvaluations,
-      ] = await Promise.all([
+      const [totalEmployees, totalEvaluators, totalDepartments, totalTeams, totalPeriods, totalEvaluations, completedEvaluations] = await Promise.all([
         prisma.employee.count({ where: { deletedAt: null, status: "active" } }),
         prisma.user.count({ where: { deletedAt: null, isActive: true, role: "EVALUATOR" } }),
         prisma.department.count({ where: { deletedAt: null, isActive: true } }),
@@ -57,7 +52,7 @@ export async function GET(req: NextRequest) {
             totalEmployees,
             totalEvaluators,
             totalDepartments,
-            totalTeams: 3, // 3 ทีมหลัก: ทีม A, ทีม B, ทีม C
+            totalTeams, // Real count from DB
             totalPeriods,
             totalEvaluations,
             completedEvaluations,
@@ -83,6 +78,7 @@ export async function GET(req: NextRequest) {
 
       const activePeriod = await prisma.evaluationPeriod.findFirst({
         where: { status: "ACTIVE" },
+        orderBy: { startDate: "desc" }, // Deterministic: pick latest ACTIVE period
       });
 
       const myEvaluations = await prisma.evaluationRecord.findMany({

@@ -126,9 +126,8 @@ export async function POST(req: NextRequest) {
           });
           createdRecords.push(rec);
         }
-      } else {
-        const rec = await prisma.evaluatorAssignment.create({
-          data: {
+        const existing = await prisma.evaluatorAssignment.findFirst({
+          where: {
             evaluatorUserId: data.evaluatorUserId,
             assignmentType: data.assignmentType,
             targetEmployeeId: data.targetEmployeeId ?? null,
@@ -136,10 +135,33 @@ export async function POST(req: NextRequest) {
             targetTeamId: data.targetTeamId ?? null,
             periodId: data.periodId ?? null,
             categoryId: data.categoryId ?? null,
-            weightPercentage: data.weightPercentage,
+            isActive: true,
           },
         });
-        createdRecords.push(rec);
+
+        if (existing) {
+          const rec = await prisma.evaluatorAssignment.update({
+            where: { id: existing.id },
+            data: {
+              weightPercentage: data.weightPercentage,
+            },
+          });
+          createdRecords.push(rec);
+        } else {
+          const rec = await prisma.evaluatorAssignment.create({
+            data: {
+              evaluatorUserId: data.evaluatorUserId,
+              assignmentType: data.assignmentType,
+              targetEmployeeId: data.targetEmployeeId ?? null,
+              targetDepartmentId: data.targetDepartmentId ?? null,
+              targetTeamId: data.targetTeamId ?? null,
+              periodId: data.periodId ?? null,
+              categoryId: data.categoryId ?? null,
+              weightPercentage: data.weightPercentage,
+            },
+          });
+          createdRecords.push(rec);
+        }
       }
     }
 

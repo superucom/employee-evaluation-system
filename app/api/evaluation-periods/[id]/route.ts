@@ -24,15 +24,29 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
         ? AuditAction.UNLOCK_PERIOD
         : AuditAction.UPDATE;
 
-    const updated = await prisma.evaluationPeriod.update({
-      where: { id },
-      data: {
-        ...(body.name && { name: body.name }),
-        ...(body.status && { status: body.status }),
-        ...(body.expectedWorkingDays !== undefined && { expectedWorkingDays: body.expectedWorkingDays }),
-        ...(body.startDate && { startDate: new Date(body.startDate) }),
-        ...(body.endDate && { endDate: new Date(body.endDate) }),
-      },
+    // Business Rule: Only one ACTIVE period at a time.
+    // When activating this period, auto-close all other currently ACTIVE periods.
+    const updated = await prisma.$transaction(async (tx) => {
+      if (body.status === PeriodStatus.ACTIVE) {
+        await tx.evaluationPeriod.updateMany({
+          where: {
+            status: PeriodStatus.ACTIVE,
+            id: { not: id },
+          },
+          data: { status: PeriodStatus.CLOSED },
+        });
+      }
+
+      return tx.evaluationPeriod.update({
+        where: { id },
+        data: {
+          ...(body.name && { name: body.name }),
+          ...(body.status && { status: body.status }),
+          ...(body.expectedWorkingDays !== undefined && { expectedWorkingDays: body.expectedWorkingDays }),
+          ...(body.startDate && { startDate: new Date(body.startDate) }),
+          ...(body.endDate && { endDate: new Date(body.endDate) }),
+        },
+      });
     });
 
     await createAuditLog({

@@ -60,10 +60,17 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
       );
     }
 
-    // Soft delete
-    await prisma.department.update({
-      where: { id },
-      data: { deletedAt: new Date(), isActive: false },
+    // Soft delete department and cascade to child teams in transaction
+    await prisma.$transaction(async (tx) => {
+      await tx.team.updateMany({
+        where: { departmentId: id, deletedAt: null },
+        data: { deletedAt: new Date(), isActive: false },
+      });
+
+      await tx.department.update({
+        where: { id },
+        data: { deletedAt: new Date(), isActive: false },
+      });
     });
 
     await createAuditLog({
