@@ -371,10 +371,13 @@ async function main() {
       const headUser = userByUsername[headUsername];
       if (!headUser) { console.warn(`  ⚠️ Head user ${headUsername} not found!`); continue; }
 
-      // Head evaluates all employees in team with correct category
+      // Head evaluates regular employees in team (SupportHead is handled separately below)
       for (const emp of teamEmps) {
-        const catId = config.isQA ? CATEGORY_HEAD_EVAL : CATEGORY_EMP_EVAL;
-        addAssignment(headUser.id, 'EMPLOYEE', emp.id, catId);
+        const isSHead = (emp.position || '').toUpperCase().includes('SUPPORT.H') || (emp.position || '').toUpperCase().includes('SUPPORT TRANSFER');
+        if (!isSHead) {
+          const catId = config.isQA ? CATEGORY_HEAD_EVAL : CATEGORY_EMP_EVAL;
+          addAssignment(headUser.id, 'EMPLOYEE', emp.id, catId);
+        }
       }
 
       // Head evaluates SupportHead (if exists)
